@@ -1,0 +1,36 @@
+#include <linux/cdev.h>
+#include <linux/semaphore.h>
+
+#define MAX_QUEUE_SIZE 50
+#undef NULL
+#define NULL ((void *)0)
+
+struct tappoint_queue{
+	void * queue_buff[MAX_QUEUE_SIZE];
+	int rear;
+	int front;
+};
+struct tappoint_dev{
+        struct cdev cdev;
+        struct tappoint_queue rx_queue;
+        struct tappoint_queue tx_queue;
+        struct semaphore  sem_guard;
+        int idata_ptr;
+        int idata_len;
+};
+
+void tappoint_queue_init(struct tappoint_queue * que);
+
+int tappoint_queue_enqueue(struct tappoint_queue*que,void *ele);
+void * tappoint_queue_dequeue(struct tappoint_queue*que);
+
+#define tappoint_queue_is_empty(que) ((que)->front==(que)->rear)
+#define tappoint_queue_is_full(que) ((que)->front==(((que)->rear+1)%MAX_QUEUE_SIZE))
+
+int tappoint_init(void);
+void tappoint_uninit(void);
+int enqueue_skb(struct tappoint_dev *tap_dev,int is_rx,struct sk_buff*skb);
+int dequeue_skb(struct tappoint_dev * tap_dev,int is_rx,struct sk_buff**pskb);
+
+
+

@@ -1,0 +1,117 @@
+
+#include <net/mac80211.h>
+#include <linux/cdev.h>
+#include <linux/sched.h>
+#include <linux/semaphore.h>
+#include "tappoint.h"
+
+
+int tappoint_dev_open(struct inode*inode,struct file*filp);
+int tappoint_dev_release(struct inode*node,struct file*filp);
+ssize_t tappoint_dev_read(struct file*filp,char __user *buf,size_t size,loff_t *ppos);
+
+struct tappoint_dev g_tap_dev;
+#define MAJOR_NUMBER 507
+
+dev_t devno;
+int g_major_no=MAJOR_NUMBER;
+int register_flag=0;
+struct file_operations fops={
+    .owner=THIS_MODULE,
+    .open=tappoint_dev_open,
+    .release=tappoint_dev_release,
+    .read=tappoint_dev_read
+};
+ssize_t tappoint_dev_read(struct file*filp,char __user *buf,size_t size,loff_t *ppos)
+{
+    DECLARE_WAITQUEUE(wait,current);
+    if (size<4)/*not enough base room for headers*/
+        return -EFAULT;
+    if(g_tap_dev.idata_ptr == -1){
+      /*wait until a packet's arrival*/
+      down(&g_tap_dev.sem_guard);
+      add_wait_queue(&g_tap_dev.skb_wait,&wait);
+      
+      while((g_tap_dev.skb_cur=)){
+
+      }
+    }
+    return size;
+}
+int tappoint_dev_open(struct inode*inode,struct file*filp)
+{
+    printk("tapoint dev open\n");
+    return 0;
+}
+int tappoint_dev_release(struct inode*node,struct file*filp)
+{
+
+    printk("tappoint dev released\n");
+    return 0;
+}
+int enqueue_skb(struct tappoint_dev *tap_dev,int is_rx,struct sk_buff*skb)
+{
+	int ret=-1;
+	//down(&tap_dev->sem_guard);
+	if(is_rx){//enqueue rx queue
+		if(tappoint_queue_enqueue(&tap_dev->rx_queue,(void*)skb) != 0)
+			goto norm_proc;
+	}else{
+		if(tappoint_queue_enqueue(&tap_dev->tx_queue,(void*)skb) != 0)
+			goto norm_proc;
+	}
+	ret =0;
+	norm_proc:
+	//up(&tap_dev->sem_guard);
+	return ret;
+}
+int dequeue_skb(struct tappoint_dev * tap_dev,int is_rx,struct sk_buff**pskb)
+{
+	if (is_rx){
+		*pskb=tappoint_queue_dequeue(&tap_dev->rx_queue);
+	}
+	else {
+		*pskb=tappoint_queue_dequeue(&tap_dev->tx_queue);
+	}
+	return *pskb?0:-1;
+}
+
+int tappoint_init(void)
+{
+
+	/*create char device here*/
+	int ret;
+	devno=MKDEV(g_major_no,0);
+	ret=register_chrdev_region(devno,1,"tappoint");
+	if (ret<0)
+		return ret;
+	cdev_init(&g_tap_dev.cdev,&fops);
+	ret=cdev_add(&g_tap_dev.cdev,devno,1);
+	if(ret<0){
+		unregister_chrdev_region(devno,1);
+		return ret;
+	}
+	register_flag=1;
+	
+	tappoint_queue_init(&g_tap_dev.rx_queue);
+	tappoint_queue_init(&g_tap_dev.tx_queue);
+	sema_init(&g_tap_dev.sem_guard,1);
+        g_tap_dev.idata_ptr=-1;
+        g_tap_dev.idata_len=0;
+	g_tap_dev.skb_cur=NULL;
+	#if 0
+	tappoint_queue_enqueue(&g_tap_dev.rx_queue,NULL);
+	tappoint_queue_enqueue(&g_tap_dev.rx_queue,NULL);
+	init_waitqueue_head(&g_tap_dev.skb_wait);
+	printk("is empty:%d\n",tappoint_queue_is_full(&g_tap_dev.rx_queue));
+	#endif
+	
+	return 0;
+}
+void tappoint_uninit(void)
+{
+	if(register_flag){
+		cdev_del(&g_tap_dev.cdev);
+		unregister_chrdev_region(devno,1);
+	}
+}
